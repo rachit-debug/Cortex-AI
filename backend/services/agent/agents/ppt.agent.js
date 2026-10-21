@@ -1,0 +1,86 @@
+import { getmodel } from "../config/llmModel.js"
+import { generatePpt } from "../utills/generatePpt.js"
+import { getFromS3 } from "../utills/getFromS3.js"
+import { uploadToS3 } from "../utills/uploadToS3.js"
+
+export const pptAgent = async (state) => {
+
+  try {
+
+    const llm = await getmodel("ppt")
+    const prompt = `
+    You are a professional presentation...
+
+Return ONLY valid JSON.
+
+Format:
+
+{
+  "title": "",
+  "subtitle": "",
+  "slides": [
+    {
+      "title": "",
+      "points": [
+        "",
+        "",
+        "",
+        ""
+      ]
+    }
+  ]
+  }
+
+  Rules:
+
+- Generate exactly 6 content slides.
+- Each slide should have 4-6 concise bullet points.
+- No markdown.
+- No explanation.
+- No code block.
+- Return ONLY JSON.
+
+Topic:
+
+${state.prompt}`
+
+const res = await llm.invoke(prompt)
+
+const data = JSON.parse(res.content)
+
+const ppt = await generatePpt(data)
+const buffer = await ppt.write({
+  outputType: "nodebuffer"
+});
+
+const filename = `ppt-${Date.now()}.pptx`
+
+await uploadToS3(filename,buffer,"application/vnd.openxmlformats-officedocument.presentationml.presentation")
+
+const downloadUrl = await getFromS3(filename,24*60*60)
+
+return {
+  ...state,
+  aiResponse:`# Presentation Generated
+  **${data.title}**
+
+  [Download PPT](${downloadUrl})
+
+  _link expires in 10 minutes._`
+}
+
+
+
+
+  } catch (error) {
+
+    console.log(error)
+
+    return{
+       ...state,
+  aiResponce:`# Failed to Gene  rate PPt`
+    }
+
+  }
+
+}
